@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Secrets - never commit
+.env
+*.env
+!*.env.example
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

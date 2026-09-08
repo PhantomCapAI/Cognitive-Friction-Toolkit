@@ -1,53 +1,112 @@
-Cognitive Friction Toolkit
-A skill that stops your AI agent from confidently lying to you.
-Most agent tooling is built to make AI act faster. This is the brake. It forces an agent to stop, check what's actually true, and admit what it doesn't know — before it tells you "sure, I can do that."
+# Cognitive-Friction Toolkit
 
-The problem
-LLMs default to confident action. Ask an agent to do something and it will almost always say yes — then hallucinate a service that isn't running, skip a required step, agree to a plan it can't execute, or quietly fail and tell you it succeeded.
-That default is annoying in a chatbot. It's dangerous when there's real money, a live service, or a solo operator on the other end of the wrong answer.
-The Cognitive Friction Toolkit adds a mandatory pre-flight pause to any task: stop, read, verify, then respond honestly.
+**No Promises Without Proof.**
 
-Before / after
-Without friction:
+A tiny, portable, dependency-free discipline for agent operations. It forces every success claim to
+be paired with evidence and one explicit proof state, then derives the completion verdict
+deterministically. The result is reports that can be audited, and failures that are visible instead
+of silent.
 
-You: Deploy the payment service.
-Agent: Done! The payment service is live and processing transactions. ✅
-(The service was never deployed. The agent has no idea.)
+## Proof states
 
-With friction:
+| State | Meaning |
+|---|---|
+| OBSERVED | directly demonstrated by evidence produced or read this session |
+| INFERRED | derived from OBSERVED evidence, not demonstrated |
+| UNVERIFIED | claim exists; evidence absent |
+| BLOCKED | verification impossible now; blocker explicit |
 
-You: Deploy the payment service.
-Agent: Checked the operating manual — the payment service is marked NOT DEPLOYED and STRIPE_KEY isn't set. I can't deploy it yet.
-Blocked: the env var requires you to add it. What I can do right now: prep the deploy config so it's one step away once the key is in.
+A task is COMPLETE only when every success claim is OBSERVED. Any UNVERIFIED, conflicting, or
+BLOCKED success claim makes COMPLETE impossible. Details, the fixed response format, and the
+deterministic verdict rules live in `SKILL.md`.
 
-The difference isn't intelligence. It's discipline.
+## What this is not
 
-What it does
-The toolkit enforces one rule — No Promises Without Proof — through a four-step procedure the agent must run before acting:
-StepWhat happens0 — Know where you areConfirm the agent actually has the tools, tokens, and access for the task. If not, say so immediately.1 — StopNo code, no plan, no "sure."2 — ReadFind and read the relevant docs/state. From the source, not from memory.3 — VerifyCross-reference the request against what's actually possible right now. Look for blockers.4 — Respond honestlyIf clear, execute. If blocked, state what's blocked, what needs a human, and what can be done — and don't fake a workaround.
-Anti-patterns it kills
-Bad patternWhat happensThe fixConfident hallucinationSays a service is running when it's notForces a state checkWorkflow bypassSkips required stepsForces workflow verificationSilent failureAgrees to a plan it can't executeForces blocker identificationTrial and errorWrites code without reading docsForces doc-read firstStall theaterPretends to work on something asyncForces immediate honest statusEnvironment blindnessActs without checking accessForces an environment check
+This is a set of rules and a checkable response format - not software infrastructure. There is no
+backend, API, database, telemetry, or monitoring, and no runtime dependencies. The only executable
+is a stdlib-only validator used to test the format itself.
 
-Install
-Drop SKILL.md into your agent's skill directory (the toolkit is a single, model-agnostic markdown file — no dependencies).
-bashgit clone https://github.com/PhantomCapAI/Cognitive-Friction-Toolkit.git
-Point your agent at SKILL.md and trigger it before any infrastructure or high-stakes task. It works with any agent framework that can load a skill or system instruction.
+## Using the skill
 
-When to use it
-Use it on tasks where being confidently wrong has a cost:
+1. Copy `SKILL.md` into your agent skill directory, e.g. `.agents/skills/cognitive-friction-toolkit/SKILL.md`.
+2. Run its procedure for any task whose outcome will be reported as a claim.
 
-Deploying or modifying live services
-Anything touching money, keys, or wallets
-Multi-step workflows with a required sequence
-Any task that depends on the current state of a system
+Procedure, in fixed order:
 
-Skip it for low-stakes chat. The friction is the point — apply it where the point matters.
+    SCOPE -> STOP -> READ -> VERIFY -> CLASSIFY -> REPORT -> SELF-CHECK
 
-Why this exists
-This came out of running real infrastructure where an agent's confident "done!" could mean a service that was never deployed and money that never moved. The lesson: the dangerous failure isn't the agent that can't do something — it's the agent that says it did.
-Capability is everywhere. Honesty under pressure is rare. This is a small attempt to make it the default.
+Response header, from `SKILL.md` Section 3:
 
-License
-See LICENSE.
-Contributing
-Issues and PRs welcome — especially new anti-patterns you've watched an agent fall into.
+    STATUS: COMPLETE | PARTIAL | FAILED | BLOCKED
+    PROOF STATES: OBSERVED / INFERRED / UNVERIFIED / BLOCKED
+    CLAIM DETAIL: <claim> | <state> | <evidence> | <snippet>
+    NEXT ACTION / BLOCKERS
+
+The status is derived from the counts of claims; it is never chosen freely. A report whose status
+contradicts its own CLAIM DETAIL is malformed.
+
+## Examples
+
+`examples/` contains eight worked scenarios with the expected toolkit report for each:
+
+1. `01-successful-verification.md` - every claim observed; COMPLETE.
+2. `02-incomplete-evidence.md` - key claim never verified; PARTIAL, refuses COMPLETE.
+3. `03-conflicting-evidence.md` - two observations disagree; BLOCKED pending reconciliation.
+4. `04-blocked-verification.md` - missing access; BLOCKED with an explicit human action.
+5. `05-failed-task.md` - attempt ran, outcome contradicted; FAILED.
+6. `06-partial-task.md` - part of the work done; PARTIAL, no rounding up.
+7. `07-looks-done-traps.md` - exit-code-zero "success" that is a contradiction; FAILED, not done.
+8. `08-uncheckable-external-dependency.md` - local step verified, external system uncheckable; PARTIAL.
+
+## Validation
+
+```bash
+python tests/validator.py
+```
+
+Zero dependencies (standard library only). Exit code `0` means every example and adversarial fixture
+conforms to the format and verdict rules; `1` means at least one violation, listed with its location.
+The validator fails closed: deleting an example, dropping a field, or flipping a status to make a
+fixture pass is reported as a failure.
+
+## Install
+
+```bash
+git clone https://github.com/PhantomCapAI/Cognitive-Friction-Toolkit.git
+cd Cognitive-Friction-Toolkit
+# Zero dependencies. Zero configuration.
+```
+
+## When to use it
+
+- Any task where an agent might claim success without evidence.
+- Multi-step workflows requiring auditability: deployments, API calls, file edits, money movements.
+- Any environment where "trust but verify" is the operating assumption.
+
+## When not to use it
+
+- One-shot tasks where no claim of result is made.
+- Tasks that explicitly disclaim verification (e.g. creative writing).
+- Environments with no verification mechanism at all - in that case the toolkit itself becomes the
+  minimum viable verification layer, and uncheckable claims must be reported as BLOCKED, not as done.
+
+## Compatibility
+
+Model-agnostic. Any tool-using agent can follow the procedure; there are no model-specific
+instructions or proprietary features. All verification is command- and file-based, portable across
+operating systems, and depends on no external service.
+
+## Contributing
+
+1. Fork the repository, create a feature branch.
+2. Make changes following the procedure above (SCOPE through SELF-CHECK).
+3. Run `python tests/validator.py` and include its output.
+4. Submit a pull request whose own description follows the response format, so the PR's claims are
+   verified like any other claims.
+5. If you change a rule, change the examples, the adversarial fixtures, or both - a rule without a
+   test is a promise without proof.
+
+## License
+
+MIT. See `LICENSE`. Provided without warranty, as-is, under the same terms every proof in this
+toolkit is subject to: no claim stands without evidence.
